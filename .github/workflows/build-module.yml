@@ -66,6 +66,7 @@ jobs:
             -Dmaven.artifact.threads=8
 
       - name: Collect JARs
+        id: collect
         run: |
           mkdir -p jars
           find . -path "*/target/*.jar" \
@@ -74,9 +75,11 @@ jobs:
             -exec cp {} jars/ \;
           echo "Built JARs:"
           ls -lh jars/
+          module="${{ inputs.module }}"
+          echo "artifact=${module//\//-}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.module != '' && replace(inputs.module, '/', '-') || 'build' }}-jars
+          name: ${{ steps.collect.outputs.artifact }}-jars
           path: jars/
           retention-days: 7
