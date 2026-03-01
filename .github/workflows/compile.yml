@@ -1,0 +1,29 @@
+name: compile
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: 'maven'          # caches ~/.m2/repository keyed on pom.xml files
+
+      - name: Build and test (parallel)
+        run: mvn verify --batch-mode --no-transfer-progress -T 1C
+        #                                                    ^^^^
+        #   -T 1C → one Maven thread per CPU core.
+        #   Modules with no inter-dependency (e.g. market-domain and market-feed
+        #   are both leaves) compile concurrently, cutting wall-clock time
+        #   proportionally to the DAG's parallelism factor.

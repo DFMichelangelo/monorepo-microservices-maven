@@ -1,0 +1,82 @@
+name: Build Module
+
+on:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Module (or sub-module) to build'
+        required: true
+        type: choice
+        options:
+          - market-runners/analysis-runner
+          - market-runners/book-ticker-runner
+          - market-runners
+          - market-analytics
+          - market-feed
+          - market-domain
+          - market-app
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+
+      # Granular Maven cache: primary key on all pom.xml hashes,
+      # restore-keys fall back to any prior cache for the same OS so
+      # already-downloaded jars are reused even when a pom changes.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # market-runners is a pom aggregator: -pl on it alone skips sub-modules.
+      # Expand it to the concrete sub-modules so fat JARs are produced.
+      - name: Resolve build targets
+        id: targets
+        run: |
+          if [ "${{ inputs.module }}" = "market-runners" ]; then
+            echo "pl=market-runners/analysis-runner,market-runners/book-ticker-runner" >> "$GITHUB_OUTPUT"
+          else
+            echo "pl=${{ inputs.module }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build ${{ inputs.module }} + dependencies
+        # --also-make     → also build everything it transitively depends on
+        # -DskipTests     → packaging pipeline; tests run in CI
+        # -T 1C           → parallel where the DAG allows
+        # -nsu            → skip remote SNAPSHOT-update checks (all modules are local)
+        run: |
+          mvn package \
+            --batch-mode --no-transfer-progress \
+            -pl ${{ steps.targets.outputs.pl }} --also-make \
+            -DskipTests \
+            -T 1C \
+            -nsu \
+            -Dmaven.artifact.threads=8
+
+      - name: Collect JARs
+        run: |
+          mkdir -p jars
+          find . -path "*/target/*.jar" \
+                 ! -name "original-*.jar" \
+                 ! -name "*-sources.jar" \
+            -exec cp {} jars/ \;
+          echo "Built JARs:"
+          ls -lh jars/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.module != '' && replace(inputs.module, '/', '-') || 'build' }}-jars
+          path: jars/
+          retention-days: 7
