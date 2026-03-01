@@ -1,4 +1,4 @@
-name: Build Module
+name: build-module
 
 on:
   workflow_dispatch:
