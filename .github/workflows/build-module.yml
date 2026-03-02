@@ -40,16 +40,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # market-runners is a pom aggregator: -pl on it alone skips sub-modules.
-      # Expand it to the concrete sub-modules so fat JARs are produced.
+      # Recursively expand POM aggregators to their concrete leaf modules.
+      # Handles arbitrary nesting depth — no hardcoding required.
       - name: Resolve build targets
         id: targets
         run: |
-          if [ "${{ inputs.module }}" = "market-runners" ]; then
-            echo "pl=market-runners/analysis-runner,market-runners/book-ticker-runner" >> "$GITHUB_OUTPUT"
-          else
-            echo "pl=${{ inputs.module }}" >> "$GITHUB_OUTPUT"
-          fi
+          leaves() {
+            local mod="$1"
+            if grep -q '<modules>' "${mod}/pom.xml" 2>/dev/null; then
+              grep -oP '(?<=<module>)[^<]+(?=</module>)' "${mod}/pom.xml" | \
+                while read -r sub; do leaves "${mod}/${sub}"; done
+            else
+              echo "$mod"
+            fi
+          }
+          pl=$(leaves "${{ inputs.module }}" | paste -sd,)
+          echo "pl=$pl" >> "$GITHUB_OUTPUT"
 
       - name: Build ${{ inputs.module }} + dependencies
         # --also-make     → also build everything it transitively depends on
